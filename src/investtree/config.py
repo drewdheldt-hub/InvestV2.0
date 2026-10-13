@@ -40,6 +40,8 @@ class Paths:
         self.logs = self.var / "logs"
         self.usage = self.var / "usage"
         self.briefings = self.reports / "briefings"
+        self.overlay_state = self.var / "overlay"
+        self.stop_file = self.root / "STOP"            # while it exists, nothing sends an order
 
     def not_in_git(self) -> list[Path]:
         """What the backup must cover: everything the project keeps outside git."""
@@ -91,6 +93,88 @@ class AgentsConfig(BaseModel):
     critic: RoleConfig
 
 
+# ------------------------------------------------------------------ overlays
+def valid_weights(w: dict[str, float]) -> dict[str, float]:
+    """Upper-case symbols; weights non-negative, adding up to more than 0 and at most 1 (the rest is cash)."""
+    w = {s.upper(): v for s, v in w.items()}
+    if any(v < 0 for v in w.values()) or not 0 < sum(w.values()) <= 1 + 1e-9:
+        raise ValueError("weights must be non-negative and add up to more than 0 and at most 1")
+    return w
+
+
+class OverlayConfig(BaseModel):
+    """One paper overlay runner: a portfolio, its policy, and the slice of the paper account it manages."""
+
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,40}$")
+    weights: dict[str, float] = Field(min_length=1, description="symbol -> target weight, adding up to at most 1")
+    policy: Literal["rebalance", "vol_target", "trend"] = "vol_target"
+    capital: float = Field(default=100_000.0, gt=0, description="the slice of the account this runner manages")
+    execute: bool = Field(default=False, description="send orders (paper); False decides and records only")
+    min_trade: float = Field(default=0.005, ge=0, lt=1, description="skip trades below this share of capital")
+    adopt: bool = Field(default=False, description="take over positions already in the account")
+    client_id: int = Field(default=61, ge=0)
+    history_days: int = Field(default=320, ge=30, description="trading days of closes (the trend filter needs 200)")
+
+    @field_validator("weights")
+    @classmethod
+    def _weights(cls, w: dict[str, float]) -> dict[str, float]:
+        return valid_weights(w)
+
+
+class OverlaysConfig(BaseModel):
+    overlays: list[OverlayConfig] = Field(default_factory=list)
+
+    def get(self, name: str) -> OverlayConfig:
+        for o in self.overlays:
+            if o.name == name:
+                return o
+        raise KeyError(f"no overlay named {name!r} in config/overlays.yaml; known: {[o.name for o in self.overlays]}")
+
+
+# ------------------------------------------------------------------ real accounts
+class AccountOverlay(BaseModel):
+    """The overlay that proposes trades for a real account. Suggestions only: real accounts never get orders."""
+
+    weights: dict[str, float] = Field(min_length=1)
+    policy: Literal["rebalance", "vol_target", "trend"] = "vol_target"
+    min_trade: float = Field(default=0.005, ge=0, lt=1)
+
+    @field_validator("weights")
+    @classmethod
+    def _weights(cls, w: dict[str, float]) -> dict[str, float]:
+        return valid_weights(w)
+
+
+class RealAccount(BaseModel):
+    id: str = Field(min_length=1)
+    name: str = ""
+    taxable: bool = Field(description="taxes are modelled for taxable accounts only")
+    overlay: AccountOverlay | None = Field(default=None, description="none: risk report only, no suggestions")
+
+
+class TaxConfig(BaseModel):
+    short_term_rate: float = Field(default=0.37, ge=0, le=1)
+    long_term_rate: float = Field(default=0.15, ge=0, le=1)
+    harvest_min_loss: float = Field(default=1000.0, ge=0)
+    harvest_min_pct: float = Field(default=0.05, ge=0, le=1)
+    harvest_pairs: dict[str, str] = Field(default_factory=dict, description="symbol -> the owner's replacement")
+
+
+class AccountsConfig(BaseModel):
+    """config/accounts.local.yaml: the owner's real accounts. Never in git (it names real account numbers)."""
+
+    flex_query_ids: list[str] = Field(default_factory=list)
+    accounts: list[RealAccount] = Field(default_factory=list)
+    tax: TaxConfig = Field(default_factory=TaxConfig)
+
+    def get(self, account_id: str) -> RealAccount | None:
+        return next((a for a in self.accounts if a.id == account_id), None)
+
+    @property
+    def taxable_ids(self) -> set[str]:
+        return {a.id for a in self.accounts if a.taxable}
+
+
 def load_yaml(path: Path) -> object:
     with open(path, encoding="utf-8") as fh:
         return yaml.safe_load(fh)
@@ -104,3 +188,15 @@ def load_schedule(paths: Paths | None = None) -> Schedule:
 def load_agents(paths: Paths | None = None) -> AgentsConfig:
     paths = paths or Paths()
     return AgentsConfig.model_validate(load_yaml(paths.config / "agents.yaml"))
+
+
+def load_overlays(paths: Paths | None = None) -> OverlaysConfig:
+    paths = paths or Paths()
+    return OverlaysConfig.model_validate(load_yaml(paths.config / "overlays.yaml"))
+
+
+def load_accounts(paths: Paths | None = None) -> AccountsConfig:
+    """The owner's real accounts, or an empty configuration when config/accounts.local.yaml does not exist."""
+    paths = paths or Paths()
+    p = paths.config / "accounts.local.yaml"
+    return AccountsConfig.model_validate(load_yaml(p) or {}) if p.exists() else AccountsConfig()

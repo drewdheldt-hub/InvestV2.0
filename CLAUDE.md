@@ -1,7 +1,7 @@
 # investTree 2: rules for the builder agent (Claude Code)
 
-The plan is the investTree 2 Blueprint. This project is in **Phase 0: Foundation**. Do not start work that belongs
-to a later phase unless the owner asks.
+The plan is the investTree 2 Blueprint. This project is in **Phase 1: Portfolio and risk** (started 2026-10-13).
+Do not start work that belongs to a later phase unless the owner asks.
 
 ## Non-negotiable rules
 

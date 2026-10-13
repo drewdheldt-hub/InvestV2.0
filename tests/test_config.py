@@ -1,9 +1,22 @@
 from datetime import time
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from investtree.config import Paths, Schedule, load_agents, load_schedule
+from investtree.config import (
+    AccountsConfig,
+    OverlayConfig,
+    Paths,
+    Schedule,
+    load_accounts,
+    load_agents,
+    load_overlays,
+    load_schedule,
+    load_yaml,
+)
+
+REPO = Path(__file__).resolve().parents[1]
 
 
 def test_the_real_config_files_load(paths: Paths) -> None:
@@ -26,3 +39,51 @@ def test_a_bad_job_fails_when_loaded_naming_the_field() -> None:
 
 def test_only_data_var_and_reports_live_outside_git(paths: Paths) -> None:
     assert [p.name for p in paths.not_in_git()] == ["data", "var", "reports"]
+
+
+def test_overlay_jobs_name_overlays_that_exist(paths: Paths) -> None:
+    names = {o.name for o in load_overlays(paths).overlays}
+    for job in load_schedule(paths).jobs:
+        if job.command[3:4] == ["overlay"]:
+            assert job.command[5] in names, job.name
+
+
+def test_each_overlay_runs_from_one_job_and_its_fills_are_checked(paths: Paths) -> None:
+    """An overlay that sends orders is run by exactly one enabled job (a second would double every trade), and
+    its fills are recorded by an enabled job too."""
+    jobs = [j for j in load_schedule(paths).jobs if j.enabled and j.command[3:4] == ["overlay"]]
+    for o in load_overlays(paths).overlays:
+        if o.execute:
+            runs = [j.name for j in jobs if j.command[4:6] == ["run", o.name]]
+            fills = [j.name for j in jobs if j.command[4:6] == ["fills", o.name]]
+            assert len(runs) == 1 and len(fills) == 1, (o.name, runs, fills)
+
+
+def test_overlay_weights_are_checked() -> None:
+    assert OverlayConfig(name="x", weights={"spy": 0.6, "tlt": 0.4}).weights == {"SPY": 0.6, "TLT": 0.4}
+    for bad in ({"SPY": 0.7, "TLT": 0.4}, {"SPY": -0.1, "TLT": 0.5}, {"SPY": 0.0}):
+        with pytest.raises(ValidationError, match="weights"):
+            OverlayConfig(name="x", weights=bad)
+
+
+def test_accounts_are_optional_and_the_example_is_valid(paths: Paths) -> None:
+    assert load_accounts(paths).accounts == []
+    example = AccountsConfig.model_validate(load_yaml(REPO / "config" / "accounts.example.yaml"))
+    assert example.taxable_ids == {"U1234567"} and example.get("U7654321") is not None
+    with pytest.raises(ValidationError, match="taxable"):
+        AccountsConfig.model_validate({"accounts": [{"id": "U1"}]})      # taxable must be stated, not assumed
+
+
+def test_no_source_or_test_file_is_ignored_by_git() -> None:
+    """The ignore rules for the project's data/, var/ and reports/ folders once also matched the source package
+    src/investtree/data/, so it was never committed."""
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None or not (REPO / ".git").exists():
+        pytest.skip("not a git checkout")
+    files = [str(p.relative_to(REPO)) for d in ("src", "tests") for p in (REPO / d).rglob("*.py")
+             if "__pycache__" not in p.parts]
+    ignored = subprocess.run(["git", "check-ignore", "--stdin"], cwd=REPO, input="\n".join(files),
+                             capture_output=True, text=True).stdout.split()
+    assert not ignored, f"ignored by git: {ignored}"

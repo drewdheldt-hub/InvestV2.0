@@ -3,8 +3,11 @@
 # start and finish to the status feed. A job missed while the computer was off still runs if the scheduler
 # starts within catch_up_hours of its time.
 #
-# Phase 0 jobs only. v1's jobs (Gateway start, overlay, fill check, nightly update) keep running from
-# v1's own Task Scheduler entries until phase 1 moves them here.
+# v1's Gateway start and its own nightly update keep running from v1's Task Scheduler entries. The paper
+# overlay moved from v1 to v2 on 2026-10-13 (v1's overlay tasks are disabled). Phase 1 jobs that are switched
+# off wait for the owner:
+#   holdings-fetch, suggest, risk-report   need config/accounts.local.yaml and the Flex token first.
+# Market-on-open orders must reach IB by 09:28 New York (08:28 Central), hence the overlay's 08:25 cut-off.
 
 jobs:
   - name: operator-briefing
@@ -26,3 +29,42 @@ jobs:
     at: "19:00"
     timeout_minutes: 120
     catch_up_hours: 48
+
+  - name: data-update
+    command: ["{python}", "-m", "investtree", "data", "update", "--wait-minutes", "120"]
+    at: "16:30"
+    timeout_minutes: 180
+    catch_up_hours: 6
+
+  - name: overlay-paper
+    command: ["{python}", "-m", "investtree", "overlay", "run", "spy_voltarget", "--wait-until", "08:25"]
+    at: "07:45"
+    timeout_minutes: 60
+    catch_up_hours: 0.6
+
+  - name: overlay-fills
+    command: ["{python}", "-m", "investtree", "overlay", "fills", "spy_voltarget", "--wait-until", "15:00"]
+    at: "09:00"
+    timeout_minutes: 380
+    catch_up_hours: 5
+
+  - name: holdings-fetch
+    command: ["{python}", "-m", "investtree", "holdings", "fetch"]
+    at: "07:00"
+    timeout_minutes: 15
+    catch_up_hours: 3
+    enabled: false
+
+  - name: suggest
+    command: ["{python}", "-m", "investtree", "suggest"]
+    at: "07:20"
+    timeout_minutes: 10
+    catch_up_hours: 3
+    enabled: false
+
+  - name: risk-report
+    command: ["{python}", "-m", "investtree", "report"]
+    at: "07:25"
+    timeout_minutes: 10
+    catch_up_hours: 3
+    enabled: false

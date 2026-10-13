@@ -1,0 +1,27 @@
+# Copy to config/accounts.local.yaml (git ignores it: it names real account numbers) and fill in.
+# Real accounts are read-only: their holdings come from IB Flex statements, and the overlay only ever
+# SUGGESTS trades for them (investtree suggest). Nothing here can place an order.
+
+# Saved Activity Flex Query ids (Client Portal > Performance & Reports > Flex Queries). The query needs
+# Account Information, Open Positions (Summary and Lot), Trades (Execution and Closed Lots), Cash Report;
+# format XML; period "Last 365 Calendar Days". Token: investtree credentials set ib-flex-token
+flex_query_ids: ["123456"]
+
+accounts:
+  - id: U1234567
+    name: Brokerage
+    taxable: true                 # lots, wash sales and harvesting are modelled for taxable accounts only
+    overlay:                      # optional; without it the account gets the risk report but no suggestions
+      weights: {VTI: 0.6, BND: 0.4}
+      policy: vol_target          # rebalance, vol_target or trend
+      min_trade: 0.005
+  - id: U7654321
+    name: IRA
+    taxable: false                # still counted for wash sales: the rule spans all accounts
+
+tax:                              # your own marginal rates; estimates, not tax advice
+  short_term_rate: 0.37
+  long_term_rate: 0.15
+  harvest_min_loss: 1000          # dollars
+  harvest_min_pct: 0.05           # of the lot's cost
+  harvest_pairs: {}               # e.g. {VTI: ITOT}: your choice of a similar but not identical replacement

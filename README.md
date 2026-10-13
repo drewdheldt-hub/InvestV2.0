@@ -3,8 +3,12 @@
 Portfolio risk tools first, evidence-gated research second, AI agents working inside guardrails enforced by
 code. Built from the investTree 2 Blueprint and the lessons of investTree v1. Paper account only.
 
-**Status: Phase 0, Foundation.** Gate to phase 1: CI green; broker contract tests pass against paper; a
-restore from backup works.
+**Status: Phase 1, Portfolio and risk.** Phase 0 passed its gate on 2026-10-13. Gate to phase 2: the overlay
+replicates its study exactly (tested: `tests/test_risk.py`); at least 3 months on paper with 12 weekly decisions
+and 3 monthly rebalances; share counts always reconcile; success measures met (`investtree overlay review`).
+
+Owner decisions for this phase: holdings are read from IB accounts only, read-only, through Flex statements;
+taxes are modelled for taxable accounts only.
 
 ## Setup
 
@@ -27,8 +31,17 @@ powershell -ExecutionPolicy Bypass -File scripts\register_scheduler.ps1   # star
 | `src/investtree/ops/backup.py` | Backups of `data/`, `var/`, `reports/`, and a restore check that proves they work |
 | `src/investtree/credentials.py` | Credentials in the Windows credential store, never in files |
 | `src/investtree/agents/` | Permissions per role (enforced in code, audited), daily token caps, the operator's briefing |
-| `src/investtree/{data,evidence,research,portfolio,app}/` | Later phases |
-| `config/` | The schedule and the agents' models and caps |
+| `src/investtree/data/bars.py` | Tier 1 data: dividend-adjusted daily bars in Parquet, checked before storing, fingerprinted |
+| `src/investtree/data/flex.py` | Downloads IB Flex statements (read-only) with the token from the credential store |
+| `src/investtree/portfolio/risk.py` | The overlays' 20-year study, ported from v1 and reproducing its stored result |
+| `src/investtree/portfolio/overlay.py` | One day's overlay decision and order sizing, shared by the paper runner and suggestions |
+| `src/investtree/portfolio/holdings.py` | Real holdings, lots and trades parsed from Flex statements |
+| `src/investtree/portfolio/tax.py` | Lot choice, wash sales and harvesting candidates, for taxable accounts |
+| `src/investtree/portfolio/report.py` | The risk report for real holdings |
+| `src/investtree/portfolio/suggest.py` | Suggested trades for real accounts (never sent) |
+| `src/investtree/execution/overlay_runner.py` | The paper overlay runner (v1's rules and state layout), fill review, the paper gate's record |
+| `src/investtree/{evidence,research,app}/` | Later phases |
+| `config/` | The schedule, the agents' models and caps, the paper overlays; `accounts.example.yaml` to copy to `accounts.local.yaml` (not in git) |
 | `CLAUDE.md`, `.claude/settings.json` | Rules and permissions for the builder agent (Claude Code) |
 | `ledger/`, `registry/`, `experiments/` | Pre-registrations, result manifests and experiment configs (from phase 2) |
 
@@ -44,7 +57,32 @@ investtree backup run|verify         back up; restore into a temporary folder an
 investtree brief [--plain]           today's operator briefing, in reports/briefings/<date>.md
 investtree broker check [--port]     read-only connection check against the paper Gateway
 investtree credentials set|check     store a credential (prompted, hidden) or check it is set
+investtree data update [SYMBOLS]     refresh tier 1 daily bars from the paper Gateway (read-only)
+investtree holdings fetch|show       download Flex statements, or summarise the saved ones
+investtree report                    risk report for real holdings: reports/risk/<date>.md
+investtree suggest                   suggested trades for real accounts: reports/suggestions/<date>.md
+investtree overlay run|fills NAME    the paper overlay's morning decision, or its fill record
+investtree overlay review NAME       fill costs, and progress towards the paper gate
+investtree overlay import-v1 NAME    carry v1's running paper overlay over to v2
 ```
+
+## Real accounts
+
+Real accounts are read-only. Their holdings come from IB Flex statements, and the overlay only ever suggests
+trades for them; nothing in the code can send an order to a real account. To set them up:
+
+1. In Client Portal, create an Activity Flex Query (XML; Account Information; Open Positions with Summary and
+   Lot; Trades with Execution and Closed Lots; Cash Report; last 365 days) and enable the Flex Web Service.
+2. `uv run python -m investtree credentials set ib-flex-token`
+3. Copy `config/accounts.example.yaml` to `config/accounts.local.yaml` and fill in the query id and accounts.
+4. `investtree holdings fetch`, `investtree data update`, then `investtree report` and `investtree suggest`.
+
+## The paper overlay
+
+`spy_voltarget` (SPY at a 10% volatility target, $100,000 of the paper account) started in v1 on 2026-10-08
+and moved to v2 on 2026-10-13 with its state and journal, so the paper record is unbroken. v2 runs it at 07:45
+(`overlay-paper`) and records its fills at 09:00 (`overlay-fills`). v1's two overlay tasks are disabled and
+must stay so: two runners on one account would double every trade.
 
 ## The operator's briefing
 

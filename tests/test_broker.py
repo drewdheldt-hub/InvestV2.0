@@ -122,3 +122,43 @@ def test_executions_are_filtered_by_tag_signed_and_unset_commissions_are_none() 
     b.qualify("TLT")
     fills = b.executions_today("investtree-overlay")
     assert [(f.symbol, f.shares, f.commission) for f in fills] == [("SPY", 3, 1.0), ("TLT", -2, None), ("SPY", 1, None)]
+
+
+def test_orders_are_refused_on_a_read_only_session() -> None:
+    b = fake()
+    b.connect()
+    with pytest.raises(BrokerError, match="read-only"):
+        b.place_market_on_open("SPY", 10, "investtree-overlay")
+
+
+def test_a_paper_order_is_market_on_open_tagged_and_signed() -> None:
+    ib = FakeIB()
+    b = IBAdapter(4002, 70, readonly=False, ib_factory=lambda: ib)
+    b.connect()
+    b.place_market_on_open("SPY", -7, "investtree-overlay")
+    [(sym, order)] = ib.orders
+    assert (sym, order.action, order.totalQuantity, order.tif, order.orderRef) == (
+        "SPY", "SELL", 7, "OPG", "investtree-overlay")
+
+
+def test_a_live_order_needs_the_typed_confirmation() -> None:
+    ib = FakeIB(accounts=["U7654321"])
+    b = IBAdapter(4001, 70, allow_live=True, readonly=False, ib_factory=lambda: ib)
+    b.connect()
+    with pytest.raises(BrokerError, match="typed confirmation"):
+        b.place_market_on_open("SPY", 1, "test")
+    assert not ib.orders
+
+
+def test_the_opening_price_is_none_before_the_session_opens() -> None:
+    b = fake()
+    b.connect()
+    assert b.opening_price("SPY", date(2026, 10, 9)) is not None     # the fake's last session
+    assert b.opening_price("SPY", date(2026, 10, 12)) is None
+
+
+def test_industry_is_empty_for_a_fund() -> None:
+    b = fake()
+    b.connect()
+    assert b.industry("AAPL") == "Technology"
+    assert b.industry("SPY") == ""

@@ -60,6 +60,7 @@ def feed_all_green(paths: Paths) -> None:
     status.record(paths.status_feed, "scheduler", "note", "heartbeat", ts="2026-10-13T12:00:00")
     status.record(paths.status_feed, "backup", "started", ts="2026-10-11T18:00:00")
     status.record(paths.status_feed, "backup", "finished", ts="2026-10-11T18:04:00")
+    status.record(paths.status_feed, "data-update", "finished", ts="2026-10-12T16:40:00")
 
 
 def test_all_green_briefing_is_quiet(paths: Paths) -> None:
@@ -81,8 +82,9 @@ def test_a_failure_is_reported_with_its_log_and_cited(paths: Paths) -> None:
 
 def test_a_silent_job_is_named(paths: Paths) -> None:
     status.record(paths.status_feed, "scheduler", "note", "heartbeat", ts="2026-10-13T12:00:00")
+    status.record(paths.status_feed, "data-update", "finished", ts="2026-10-08T16:40:00")   # 5 days ago
     d = build_digest(paths, NOW)                     # backup has never reported
-    assert d.silent == ["backup"] and "backup has not reported" in plain_briefing(d)
+    assert d.silent == ["backup", "data-update"] and "backup has not reported" in plain_briefing(d)
 
 
 def test_a_model_briefing_with_an_invented_citation_is_rejected(paths: Paths) -> None:
