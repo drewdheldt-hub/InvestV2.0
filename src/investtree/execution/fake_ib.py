@@ -45,6 +45,7 @@ class _BarData:
 @dataclass
 class _Details:
     liquidHours: str
+    industry: str = ""
 
 
 @dataclass
@@ -79,13 +80,15 @@ class FakeIB:
     """Known symbols get stable contract ids; anything else is unknown, as IB would answer it."""
 
     accounts: list[str] = field(default_factory=lambda: ["DU1234567"])
-    known: dict[str, int] = field(default_factory=lambda: {"SPY": 756733, "TLT": 15547841, "BRK B": 72063691})
+    known: dict[str, int] = field(default_factory=lambda: {"SPY": 756733, "TLT": 15547841, "BRK B": 72063691,
+                                                           "AAPL": 265598})
     held: dict[str, float] = field(default_factory=dict)
     cash: float = 1_000_000.0
     closed_days: set[date] = field(default_factory=set)
     fills: list[tuple[str, str, str, float, float, float | None]] = field(default_factory=list)
     connected: bool = False
     connect_args: dict[str, Any] = field(default_factory=dict)
+    orders: list[tuple[str, Any]] = field(default_factory=list)   # (symbol, order) for every order placed
 
     def connect(self, host: str, port: int, clientId: int, readonly: bool = False, timeout: float = 4) -> None:
         self.connected = True
@@ -132,7 +135,13 @@ class FakeIB:
             d = date(2026, 10, 12) + timedelta(days=i)
             parts.append(f"{d:%Y%m%d}:CLOSED" if d in self.closed_days or d.weekday() >= 5
                          else f"{d:%Y%m%d}:0930-{d:%Y%m%d}:1600")
-        return [_Details(";".join(parts))]
+        return [_Details(";".join(parts), "Technology" if contract.symbol == "AAPL" else "")]
+
+    def placeOrder(self, contract: Any, order: Any) -> None:
+        self.orders.append((contract.symbol, order))
+
+    def sleep(self, seconds: float = 0) -> None:
+        pass
 
     def reqExecutions(self, execFilter: Any = None) -> list[_Fill]:
         return [_Fill(_Contract(sym, self.known.get(sym, 0)), _Execution(ref, side, qty, px),

@@ -22,3 +22,7 @@ reports/
 .env
 *.env
 secrets.*
+
+# The owner's real accounts (account numbers, rates): kept on this machine only
+config/*.local.yaml
+STOP

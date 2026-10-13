@@ -30,6 +30,7 @@ from .permissions import Action, Role, require
 EXPECTED = {
     "scheduler": timedelta(hours=13),     # it records a heartbeat every 6 hours
     "backup": timedelta(days=8),          # weekly
+    "data-update": timedelta(days=4),     # weekdays; a long weekend fits
 }
 
 

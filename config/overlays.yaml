@@ -1,0 +1,18 @@
+# Paper overlay runners (investtree overlay run NAME). Each manages `capital` of the PAPER account with
+# market-on-open orders tagged investtree-overlay. Real accounts never get orders: see config/accounts.yaml
+# and `investtree suggest` for suggested trades.
+#
+# spy_voltarget is the runner v1 started on 2026-10-08 (SPY at a 10% volatility target, $100,000).
+# v1 still runs it, so execute stays false here until the owner moves it to v2 with
+#   investtree overlay import-v1 spy_voltarget
+# and disables v1's "investTree overlay paper" and "investTree overlay fills" Task Scheduler entries.
+# Two runners sending orders for the same symbols would double every trade.
+
+overlays:
+  - name: spy_voltarget
+    weights: {SPY: 1.0}
+    policy: vol_target
+    capital: 100000
+    execute: false
+    min_trade: 0.005
+    client_id: 61

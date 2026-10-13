@@ -17,6 +17,7 @@ SERVICE = "investtree2"
 # The secrets the project knows about. Anything else is refused, so a typo cannot create a stray entry.
 KNOWN = {
     "anthropic-api-key": "Claude API key for the operator and critic agents",
+    "ib-flex-token": "IB Flex Web Service token, to download read-only holdings statements",
 }
 
 
