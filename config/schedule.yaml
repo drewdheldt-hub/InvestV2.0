@@ -1,0 +1,28 @@
+# What the scheduler runs (investtree scheduler run). Local time; days default to Monday to Friday.
+# "{python}" is the project's own interpreter. Each job's output goes to var/logs/<job>_<date>.log and every
+# start and finish to the status feed. A job missed while the computer was off still runs if the scheduler
+# starts within catch_up_hours of its time.
+#
+# Phase 0 jobs only. v1's jobs (Gateway start, overlay, fill check, nightly update) keep running from
+# v1's own Task Scheduler entries until phase 1 moves them here.
+
+jobs:
+  - name: operator-briefing
+    command: ["{python}", "-m", "investtree", "brief"]
+    at: "17:30"
+    timeout_minutes: 10
+    catch_up_hours: 6
+
+  - name: backup
+    command: ["{python}", "-m", "investtree", "backup", "run"]
+    days: [sun]
+    at: "18:00"
+    timeout_minutes: 120
+    catch_up_hours: 48
+
+  - name: backup-verify
+    command: ["{python}", "-m", "investtree", "backup", "verify"]
+    days: [sun]
+    at: "19:00"
+    timeout_minutes: 120
+    catch_up_hours: 48

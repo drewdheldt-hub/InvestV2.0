@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install Python 3.14 and dependencies
+        run: |
+          uv python install 3.14
+          uv sync --all-groups
+      - name: Lint
+        run: uv run ruff check
+      - name: Type check
+        run: uv run mypy
+      - name: Tests (the paper-broker contract tests need a local Gateway and are skipped here)
+        run: uv run pytest

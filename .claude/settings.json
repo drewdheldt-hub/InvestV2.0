@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git merge:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(investtree credentials:*)",
+      "Bash(uv run python -m investtree credentials:*)"
+    ],
+    "deny": [
+      "Edit(ledger/**)",
+      "Write(ledger/**)",
+      "Bash(git push --force:*)",
+      "Read(**/.env)",
+      "Read(**/IBC/config.ini)"
+    ],
+    "allow": [
+      "Bash(powershell -NoProfile -ExecutionPolicy Bypass -File scripts/register_scheduler.ps1)",
+      "Bash(powershell -NoProfile -Command *ScheduledTask*investTree*)",
+      "Bash(schtasks //query:*)"
+    ]
+  }
+}
