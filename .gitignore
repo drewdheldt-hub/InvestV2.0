@@ -10,9 +10,9 @@ dist/
 build/
 
 # Data and runtime state live outside git (the backup covers them)
-data/
-var/
-reports/
+/data/
+/var/
+/reports/
 
 # Editors
 .idea/
@@ -25,4 +25,4 @@ secrets.*
 
 # The owner's real accounts (account numbers, rates): kept on this machine only
 config/*.local.yaml
-STOP
+/STOP

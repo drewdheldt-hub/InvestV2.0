@@ -67,3 +67,18 @@ def test_accounts_are_optional_and_the_example_is_valid(paths: Paths) -> None:
     assert example.taxable_ids == {"U1234567"} and example.get("U7654321") is not None
     with pytest.raises(ValidationError, match="taxable"):
         AccountsConfig.model_validate({"accounts": [{"id": "U1"}]})      # taxable must be stated, not assumed
+
+
+def test_no_source_or_test_file_is_ignored_by_git() -> None:
+    """The ignore rules for the project's data/, var/ and reports/ folders once also matched the source package
+    src/investtree/data/, so it was never committed."""
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None or not (REPO / ".git").exists():
+        pytest.skip("not a git checkout")
+    files = [str(p.relative_to(REPO)) for d in ("src", "tests") for p in (REPO / d).rglob("*.py")
+             if "__pycache__" not in p.parts]
+    ignored = subprocess.run(["git", "check-ignore", "--stdin"], cwd=REPO, input="\n".join(files),
+                             capture_output=True, text=True).stdout.split()
+    assert not ignored, f"ignored by git: {ignored}"
