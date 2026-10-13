@@ -1,0 +1,11 @@
+# Model and daily token cap per agent role. A cap of 0 means the role never calls a model: the operator then
+# writes its plain briefing from the status feed. Raise a cap only after measuring two weeks of real use.
+# The API key is stored with: uv run python -m investtree credentials set anthropic-api-key
+
+operator:
+  model: claude-opus-5-5
+  daily_token_cap: 20000
+
+critic:
+  model: claude-opus-5-5
+  daily_token_cap: 0        # the critic starts with the research phase
