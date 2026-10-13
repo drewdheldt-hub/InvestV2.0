@@ -77,13 +77,12 @@ trades for them; nothing in the code can send an order to a real account. To set
 3. Copy `config/accounts.example.yaml` to `config/accounts.local.yaml` and fill in the query id and accounts.
 4. `investtree holdings fetch`, `investtree data update`, then `investtree report` and `investtree suggest`.
 
-## Moving the paper overlay from v1
+## The paper overlay
 
-v1 still runs `spy_voltarget` (SPY at a 10% volatility target, $100,000 of the paper account, since
-2026-10-08). v2 makes the same decisions on the same data, but two runners must never trade the same
-account: v2's overlay jobs stay disabled until the owner moves it with `investtree overlay import-v1
-spy_voltarget`, disables v1's two overlay tasks, sets `execute: true` and enables `overlay-paper` and
-`overlay-fills`.
+`spy_voltarget` (SPY at a 10% volatility target, $100,000 of the paper account) started in v1 on 2026-10-08
+and moved to v2 on 2026-10-13 with its state and journal, so the paper record is unbroken. v2 runs it at 07:45
+(`overlay-paper`) and records its fills at 09:00 (`overlay-fills`). v1's two overlay tasks are disabled and
+must stay so: two runners on one account would double every trade.
 
 ## The operator's briefing
 

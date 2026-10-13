@@ -13,6 +13,10 @@ the previous close.
                   the rest sits in cash)
   trend           monthly: hold each asset only while its price is above its 200-day average, otherwise
                   that slice sits in cash (Faber 2007)
+  band            reset to the target weights only when an asset's weight has drifted more than BAND (5
+                  percentage points) from its target, checked each day on the previous close. Not one of
+                  v1's policies: it is the Blueprint's candidate to replace the monthly rebalance, and is
+                  compared with it before being adopted (`investtree study`)
 
 Cash earns nothing here, which slightly understates the overlays that hold cash. Costs: 2 bp per side on
 every unit of turnover. Weeks are numpy's datetime64[W] weeks (Thursday to Wednesday), as in v1's study.
@@ -26,10 +30,12 @@ from typing import Literal
 import numpy as np
 from numpy.typing import NDArray
 
-Policy = Literal["buy_and_hold", "rebalance", "vol_target", "trend"]
-POLICIES: tuple[Policy, ...] = ("buy_and_hold", "rebalance", "vol_target", "trend")
+Policy = Literal["buy_and_hold", "rebalance", "vol_target", "trend", "band"]
+POLICIES: tuple[Policy, ...] = ("buy_and_hold", "rebalance", "vol_target", "trend")     # v1's study
 TITLES: dict[Policy, str] = {"buy_and_hold": "Buy and hold", "rebalance": "Monthly rebalance",
-                             "vol_target": "Volatility target 10%", "trend": "Trend filter (200-day)"}
+                             "vol_target": "Volatility target 10%", "trend": "Trend filter (200-day)",
+                             "band": "Rebalance on a 5-point band"}
+BAND = 0.05                    # fixed in advance: a common rule of thumb, not tuned on this data
 COST = 0.0002
 VOL_TARGET, VOL_WINDOW, MAX_EXPOSURE = 0.10, 20, 1.0
 TREND_WINDOW = 200
@@ -74,6 +80,8 @@ def simulate(dates: Dates, closes: Floats, target: Floats, policy: Policy, cost:
                 scale = min(MAX_EXPOSURE, VOL_TARGET / vol) if vol > 0 else MAX_EXPOSURE
             base = target if month[t] or held.sum() <= 0 else held / held.sum()
             want = base * scale
+        elif policy == "band" and np.abs(held - target).max() > BAND:
+            want = target.copy()
         elif policy == "trend":
             if month[t] and t > TREND_WINDOW:
                 sma = closes[t - TREND_WINDOW:t].mean(axis=0)          # up to yesterday's close
@@ -175,14 +183,14 @@ class Study:
 
 
 def study(dates: Dates, closes: Floats, weights: dict[str, float], periods: int = 4, bootstrap_runs: int = 1000,
-          seed: int = 0) -> Study:
+          seed: int = 0, policies: tuple[Policy, ...] = POLICIES) -> Study:
     """Every policy on one portfolio: whole-period metrics, sub-period metrics and the bootstrap against
     buy-and-hold. `closes` [T, N] are dividend-adjusted closes on common dates, columns in `weights` order."""
     if len(dates) < TREND_WINDOW + 60:
         raise ValueError(f"only {len(dates)} common days; the study needs at least {TREND_WINDOW + 60}")
     target = np.array(list(weights.values()), dtype=float)
     d = dates[1:]
-    sims = {p: simulate(dates, closes, target, p) for p in POLICIES}
+    sims = {p: simulate(dates, closes, target, p) for p in ("buy_and_hold", *policies)}
     bh = sims["buy_and_hold"].returns
     chunks = np.array_split(np.arange(len(d)), periods)
     out: dict[Policy, PolicyResult] = {}
@@ -206,3 +214,39 @@ def parse_weights(text: str) -> dict[str, float]:
     if abs(sum(out.values()) - 1.0) > 1e-9:
         raise ValueError(f"weights must add up to 1, got {sum(out.values())}")
     return out
+
+
+# ------------------------------------------------------------------ band against calendar
+@dataclass(frozen=True)
+class BandVerdict:
+    turnover_band: float               # per year
+    turnover_monthly: float
+    sharpe_band: float
+    sharpe_monthly: float
+    max_dd_band: float
+    max_dd_monthly: float
+    vs_monthly: Bootstrap              # band against the monthly rebalance
+    adopt: bool
+    reasons: list[str]
+
+
+def band_vs_monthly(dates: Dates, closes: Floats, target: Floats, runs: int = 1000, seed: int = 0) -> BandVerdict:
+    """The Blueprint's test before adopting a band: compare it with the monthly rebalance on the same history.
+    The rule is fixed here, before any result is seen. Adopt the band only if all three hold:
+      * turnover at least a third lower,
+      * Sharpe not clearly worse: the 90% bootstrap interval of (band - monthly) reaches 0 or above,
+      * worst drawdown no more than 1 percentage point deeper."""
+    d = dates[1:]
+    band, monthly = simulate(dates, closes, target, "band"), simulate(dates, closes, target, "rebalance")
+    mb, mm = metrics(band.returns, d, band.turnover), metrics(monthly.returns, d, monthly.turnover)
+    boot = block_bootstrap(band.returns, monthly.returns, runs, seed=seed)
+    tb, tm = mb.turnover_per_year or 0.0, mm.turnover_per_year or 0.0
+    checks = [
+        (tb <= tm * 2 / 3, f"turnover {tb:.2f} a year against {tm:.2f}"
+                           + (" (at least a third lower)" if tb <= tm * 2 / 3 else " (not a third lower)")),
+        (boot.sharpe_diff_90[1] >= 0, f"Sharpe {mb.sharpe:.3f} against {mm.sharpe:.3f}, 90% interval of the "
+                                      f"difference {boot.sharpe_diff_90[0]:+.3f} to {boot.sharpe_diff_90[1]:+.3f}"),
+        (mb.max_dd <= mm.max_dd + 0.01, f"worst drawdown {mb.max_dd:.1%} against {mm.max_dd:.1%}"),
+    ]
+    return BandVerdict(tb, tm, mb.sharpe, mm.sharpe, mb.max_dd, mm.max_dd, boot, all(ok for ok, _ in checks),
+                       [("met: " if ok else "NOT met: ") + why for ok, why in checks])

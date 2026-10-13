@@ -48,10 +48,15 @@ def test_overlay_jobs_name_overlays_that_exist(paths: Paths) -> None:
             assert job.command[5] in names, job.name
 
 
-def test_the_v1_overlay_does_not_send_orders_from_v2_yet(paths: Paths) -> None:
-    """v1 still runs spy_voltarget on the same paper account; v2 sending too would double every trade."""
-    assert not load_overlays(paths).get("spy_voltarget").execute
-    assert not any(j.enabled for j in load_schedule(paths).jobs if j.name in ("overlay-paper", "overlay-fills"))
+def test_each_overlay_runs_from_one_job_and_its_fills_are_checked(paths: Paths) -> None:
+    """An overlay that sends orders is run by exactly one enabled job (a second would double every trade), and
+    its fills are recorded by an enabled job too."""
+    jobs = [j for j in load_schedule(paths).jobs if j.enabled and j.command[3:4] == ["overlay"]]
+    for o in load_overlays(paths).overlays:
+        if o.execute:
+            runs = [j.name for j in jobs if j.command[4:6] == ["run", o.name]]
+            fills = [j.name for j in jobs if j.command[4:6] == ["fills", o.name]]
+            assert len(runs) == 1 and len(fills) == 1, (o.name, runs, fills)
 
 
 def test_overlay_weights_are_checked() -> None:

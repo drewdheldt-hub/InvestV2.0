@@ -15,6 +15,8 @@
     investtree overlay run|fills NAME       the paper overlay's morning decision, or its fill record
     investtree overlay review NAME          fill costs and progress towards the paper gate
     investtree overlay import-v1 NAME       carry v1's running paper overlay over to v2
+    investtree study WEIGHTS                every policy, and the band against the monthly rebalance, on stored
+                                            bars (e.g. SPY:0.6,TLT:0.4); reports/studies/<weights>_<date>.md
 """
 
 from __future__ import annotations
@@ -341,6 +343,42 @@ def cmd_overlay(args: argparse.Namespace) -> int:
     return 1 if out.failed else 0
 
 
+def cmd_study(args: argparse.Namespace) -> int:
+    import numpy as np
+
+    from .data import bars
+    from .portfolio import risk
+
+    paths = Paths()
+    weights = risk.parse_weights(args.weights)
+    days, closes = bars.closes(paths.data, list(weights))
+    dates = np.array(days, dtype="datetime64[D]")
+    s = risk.study(dates, closes, weights, bootstrap_runs=args.runs, policies=(*risk.POLICIES[1:], "band"))
+    v = risk.band_vs_monthly(dates, closes, np.array(list(weights.values())), runs=args.runs)
+    name = "_".join(f"{k}{round(w * 100)}" for k, w in weights.items())
+    lines = [f"# Study: {args.weights}", "",
+             f"{days[1]} to {days[-1]}, {len(days) - 1} days of dividend-adjusted closes (tier 1 store). Costs 2 bp "
+             "a side; cash earns nothing.", "",
+             "| Policy | CAGR | Volatility | Sharpe | Worst drawdown | Worst month | Turnover a year | "
+             "Smaller drawdown than buy and hold |", "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    for p, r in s.policies.items():
+        m = r.whole
+        better = "" if r.vs_buy_and_hold is None else f"{r.vs_buy_and_hold.dd_better_share:.0%} of resamples"
+        lines.append(f"| {risk.TITLES[p]} | {m.cagr:.1%} | {m.vol:.1%} | {m.sharpe:.2f} | {m.max_dd:.1%} | "
+                     f"{m.worst_month:.1%} | {m.turnover_per_year or 0:.2f} | {better} |")
+    lines += ["", "## Band against the monthly rebalance", "",
+              "The rule was fixed before this was run: adopt the band only if its turnover is at least a third lower, "
+              "its Sharpe is not clearly worse, and its worst drawdown is no more than 1 point deeper.", "",
+              *[f"- {r}" for r in v.reasons], "",
+              f"**Verdict: {'adopt the band' if v.adopt else 'keep the monthly rebalance'}.**", ""]
+    out = paths.reports / "studies" / f"{name}_{date.today()}.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines), encoding="utf-8")
+    print("\n".join(lines))
+    print(f"\nwritten to {out}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="investtree", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -382,6 +420,10 @@ def main(argv: list[str] | None = None) -> int:
     ov.add_argument("--wait-until", help="HH:MM: wait for the paper Gateway until then (default: do not wait)")
     ov.add_argument("--from", dest="source", default=V1_OVERLAY_STATE, help="v1's overlay_state folder (import-v1)")
     ov.set_defaults(fn=cmd_overlay)
+    st = sub.add_parser("study", help="every policy, and the band against the monthly rebalance, on stored bars")
+    st.add_argument("weights", help="e.g. SPY:0.6,TLT:0.4 (adding up to 1)")
+    st.add_argument("--runs", type=int, default=1000, help="bootstrap resamples")
+    st.set_defaults(fn=cmd_study)
     args = ap.parse_args(argv)
     return int(args.fn(args))
 

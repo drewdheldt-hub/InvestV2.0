@@ -94,3 +94,30 @@ def test_parse_weights() -> None:
     assert risk.parse_weights("SPY") == {"SPY": 1.0}
     with pytest.raises(ValueError):
         risk.parse_weights("SPY:0.6,LQD:0.6")
+
+
+def test_the_band_rebalances_only_after_a_drift_beyond_five_points() -> None:
+    n = 40
+    dates = np.datetime64("2026-01-05") + np.arange(n).astype("timedelta64[D]")
+    # A rises 3% a day, B is flat: A's weight passes 55% on the 7th day after each reset (1.03^7 > 55/45)
+    closes = np.c_[100 * 1.03 ** np.arange(n), np.full(n, 100.0)]
+    sim = risk.simulate(dates, closes, np.array([0.5, 0.5]), "band")
+    trades = np.flatnonzero(sim.turnover > 0)
+    assert len(trades) >= 4 and np.all(np.diff(trades) == 7)         # every 7 days, not daily
+    w = 1.03 ** 7 / (1.03 ** 7 + 1)                                    # A's weight when the band is crossed
+    assert sim.turnover[trades[0]] == pytest.approx(2 * (w - 0.5))
+
+
+def test_a_single_asset_never_drifts_so_the_band_never_trades(v1: dict[str, Any]) -> None:
+    dates, closes = spy_path(v1)
+    assert risk.simulate(dates, closes, np.array([1.0]), "band").turnover.sum() == 0
+
+
+def test_band_verdict_applies_the_rule_fixed_in_advance() -> None:
+    rng = np.random.default_rng(3)
+    n = 1500
+    dates = np.datetime64("2018-01-01") + np.arange(n).astype("timedelta64[D]")
+    closes = 100 * np.cumprod(1 + rng.normal(0.0003, [0.012, 0.005], (n, 2)), axis=0)
+    v = risk.band_vs_monthly(dates, closes, np.array([0.6, 0.4]), runs=100)
+    assert len(v.reasons) == 3 and v.turnover_band < v.turnover_monthly
+    assert v.adopt == all(r.startswith("met") for r in v.reasons)

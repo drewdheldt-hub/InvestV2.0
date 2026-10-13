@@ -3,12 +3,9 @@
 # start and finish to the status feed. A job missed while the computer was off still runs if the scheduler
 # starts within catch_up_hours of its time.
 #
-# v1's Gateway start and its own nightly update keep running from v1's Task Scheduler entries. Phase 1 jobs
-# that are switched off wait for the owner:
-#   overlay-paper, overlay-fills   v1 still runs the same paper overlay; two runners would double every
-#                                  trade. Enable both after `investtree overlay import-v1 spy_voltarget`, with
-#                                  v1's "investTree overlay paper" and "investTree overlay fills" tasks disabled
-#                                  and execute: true in config/overlays.yaml.
+# v1's Gateway start and its own nightly update keep running from v1's Task Scheduler entries. The paper
+# overlay moved from v1 to v2 on 2026-10-13 (v1's overlay tasks are disabled). Phase 1 jobs that are switched
+# off wait for the owner:
 #   holdings-fetch, suggest, risk-report   need config/accounts.local.yaml and the Flex token first.
 # Market-on-open orders must reach IB by 09:28 New York (08:28 Central), hence the overlay's 08:25 cut-off.
 
@@ -44,14 +41,12 @@ jobs:
     at: "07:45"
     timeout_minutes: 60
     catch_up_hours: 0.6
-    enabled: false
 
   - name: overlay-fills
     command: ["{python}", "-m", "investtree", "overlay", "fills", "spy_voltarget", "--wait-until", "15:00"]
     at: "09:00"
     timeout_minutes: 380
     catch_up_hours: 5
-    enabled: false
 
   - name: holdings-fetch
     command: ["{python}", "-m", "investtree", "holdings", "fetch"]
