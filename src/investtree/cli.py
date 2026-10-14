@@ -6,6 +6,7 @@
     investtree brief                        write today's operator briefing
     investtree credentials set|check NAME   store a credential (prompted, never echoed), or check it is set
     investtree broker check [--port P]      read-only connection check against the paper Gateway
+    investtree gateway start                start IB Gateway through IBC (paper) unless it is running
 
   Phase 1, portfolio and risk:
     investtree data update [SYMBOLS]        refresh tier 1 daily bars (default: everything the project uses)
@@ -14,7 +15,7 @@
     investtree suggest                      suggested trades for real accounts (reports/suggestions/<date>.md)
     investtree overlay run|fills NAME       the paper overlay's morning decision, or its fill record
     investtree overlay review NAME          fill costs and progress towards the paper gate
-    investtree overlay import-v1 NAME       carry v1's running paper overlay over to v2
+    investtree overlay import-v1 NAME --from DIR   carry a v1 paper overlay's state over (done once, 2026-10-13)
     investtree study WEIGHTS                every policy, and the band against the monthly rebalance, on stored
                                             bars (e.g. SPY:0.6,TLT:0.4); reports/studies/<weights>_<date>.md
 """
@@ -129,9 +130,6 @@ def cmd_broker(args: argparse.Namespace) -> int:
 
 
 # ------------------------------------------------------------------ phase 1
-V1_OVERLAY_STATE = r"C:\Users\Drewd\Documents\investTree\overlay_state"
-
-
 def _listening(port: int) -> bool:
     import socket
 
@@ -305,6 +303,9 @@ def cmd_overlay(args: argparse.Namespace) -> int:
     paths = Paths()
     cfg = load_overlays(paths).get(args.name)
     if args.action == "import-v1":
+        if not args.source:
+            print("name v1's overlay_state folder with --from", file=sys.stderr)
+            return 1
         copied = ovr.import_v1(Path(args.source), args.name, paths)
         print("copied: " + ", ".join(str(c) for c in copied))
         print("next: disable v1's 'investTree overlay paper' and 'investTree overlay fills' tasks, set execute: true "
@@ -379,6 +380,15 @@ def cmd_study(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gateway(args: argparse.Namespace) -> int:
+    from .ops import gateway
+
+    r = gateway.start(wait_seconds=args.wait_seconds)
+    print(r.message, file=sys.stdout if r.ok else sys.stderr)
+    _note(Paths(), "gateway", r.message)
+    return 0 if r.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="investtree", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -418,12 +428,16 @@ def main(argv: list[str] | None = None) -> int:
     ov.add_argument("action", choices=["run", "fills", "review", "import-v1"])
     ov.add_argument("name")
     ov.add_argument("--wait-until", help="HH:MM: wait for the paper Gateway until then (default: do not wait)")
-    ov.add_argument("--from", dest="source", default=V1_OVERLAY_STATE, help="v1's overlay_state folder (import-v1)")
+    ov.add_argument("--from", dest="source", help="v1's overlay_state folder (import-v1)")
     ov.set_defaults(fn=cmd_overlay)
     st = sub.add_parser("study", help="every policy, and the band against the monthly rebalance, on stored bars")
     st.add_argument("weights", help="e.g. SPY:0.6,TLT:0.4 (adding up to 1)")
     st.add_argument("--runs", type=int, default=1000, help="bootstrap resamples")
     st.set_defaults(fn=cmd_study)
+    gw = sub.add_parser("gateway", help="start IB Gateway through IBC (paper) unless it is running")
+    gw.add_argument("action", choices=["start"])
+    gw.add_argument("--wait-seconds", type=float, default=180)
+    gw.set_defaults(fn=cmd_gateway)
     args = ap.parse_args(argv)
     return int(args.fn(args))
 

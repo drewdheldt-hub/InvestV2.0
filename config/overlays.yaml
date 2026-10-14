@@ -6,6 +6,7 @@
 # to v2 on 2026-10-13: its state was imported with `investtree overlay import-v1 spy_voltarget`, and v1's
 # "investTree overlay paper" and "investTree overlay fills" Task Scheduler entries were disabled. Never
 # re-enable those while execute is true here: two runners on the same account would double every trade.
+# v2 no longer reads anything from v1's folder.
 
 overlays:
   - name: spy_voltarget
