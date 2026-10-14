@@ -3,13 +3,29 @@
 # start and finish to the status feed. A job missed while the computer was off still runs if the scheduler
 # starts within catch_up_hours of its time.
 #
-# v1's Gateway start and its own nightly update keep running from v1's Task Scheduler entries. The paper
-# overlay moved from v1 to v2 on 2026-10-13 (v1's overlay tasks are disabled). Phase 1 jobs that are switched
-# off wait for the owner:
+# v2 runs on its own: it starts IB Gateway itself (gateway-morning, gateway-night) and shares nothing with v1
+# but the machine's IBC install. The paper overlay moved from v1 to v2 on 2026-10-13; v1's overlay and Gateway
+# tasks are disabled. Phase 1 jobs that are switched off wait for the owner:
 #   holdings-fetch, suggest, risk-report   need config/accounts.local.yaml and the Flex token first.
 # Market-on-open orders must reach IB by 09:28 New York (08:28 Central), hence the overlay's 08:25 cut-off.
 
 jobs:
+  # The Gateway each morning before the overlay, or as soon as the scheduler starts at logon later in the
+  # day; and at 23:55, after IBC's 23:45 nightly restart, so a failed restart gets a full login in minutes.
+  - name: gateway-morning
+    command: ["{python}", "-m", "investtree", "gateway", "start"]
+    days: [mon, tue, wed, thu, fri, sat, sun]
+    at: "07:15"
+    timeout_minutes: 5
+    catch_up_hours: 16.5
+
+  - name: gateway-night
+    command: ["{python}", "-m", "investtree", "gateway", "start"]
+    days: [mon, tue, wed, thu, fri, sat, sun]
+    at: "23:55"
+    timeout_minutes: 5
+    catch_up_hours: 0.08
+
   - name: operator-briefing
     command: ["{python}", "-m", "investtree", "brief"]
     at: "17:30"

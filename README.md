@@ -56,6 +56,7 @@ investtree scheduler run|due         run the scheduler, or show what is due now
 investtree backup run|verify         back up; restore into a temporary folder and check every hash
 investtree brief [--plain]           today's operator briefing, in reports/briefings/<date>.md
 investtree broker check [--port]     read-only connection check against the paper Gateway
+investtree gateway start             start IB Gateway through IBC (paper) unless it is already running
 investtree credentials set|check     store a credential (prompted, hidden) or check it is set
 investtree data update [SYMBOLS]     refresh tier 1 daily bars from the paper Gateway (read-only)
 investtree holdings fetch|show       download Flex statements, or summarise the saved ones
@@ -63,7 +64,7 @@ investtree report                    risk report for real holdings: reports/risk
 investtree suggest                   suggested trades for real accounts: reports/suggestions/<date>.md
 investtree overlay run|fills NAME    the paper overlay's morning decision, or its fill record
 investtree overlay review NAME       fill costs, and progress towards the paper gate
-investtree overlay import-v1 NAME    carry v1's running paper overlay over to v2
+investtree overlay import-v1 NAME --from DIR   carry a v1 overlay's state over (done once, 2026-10-13)
 ```
 
 ## Real accounts
@@ -76,6 +77,14 @@ trades for them; nothing in the code can send an order to a real account. To set
 2. `uv run python -m investtree credentials set ib-flex-token`
 3. Copy `config/accounts.example.yaml` to `config/accounts.local.yaml` and fill in the query id and accounts.
 4. `investtree holdings fetch`, `investtree data update`, then `investtree report` and `investtree suggest`.
+
+## Running on its own
+
+v2 shares nothing with v1 (`Documents\investTree`) at run time. Its scheduler starts IB Gateway itself
+through the machine's IBC install (`C:\IBC`, login in `Documents\IBC\config.ini`, which v2 never opens):
+each morning at 07:15, or as soon as the scheduler starts at logon later in the day, and at 23:55 after IBC's
+nightly restart. v1's Gateway and overlay tasks are disabled; v1's own nightly update and weekly backup keep
+running for v1 and do not affect v2.
 
 ## The paper overlay
 
