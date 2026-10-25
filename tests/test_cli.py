@@ -57,3 +57,9 @@ def test_study_writes_the_band_verdict(paths: Paths, capsys: pytest.CaptureFixtu
     assert cli.main(["study", "AAA:0.6,BBB:0.4", "--runs", "50"]) == 0
     assert "**Verdict:" in capsys.readouterr().out
     assert len(list((paths.reports / "studies").glob("AAA60_BBB40_*.md"))) == 1
+
+
+def test_an_unknown_credential_name_is_one_line_not_a_traceback(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["credentials", "check", "no-such-key"]) == 1
+    err = capsys.readouterr().err
+    assert "unknown credential 'no-such-key'" in err and "nasdaq-data-link-api-key" in err

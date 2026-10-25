@@ -86,6 +86,19 @@ each morning at 07:15, or as soon as the scheduler starts at logon later in the 
 nightly restart. v1's Gateway and overlay tasks are disabled; v1's own nightly update and weekly backup keep
 running for v1 and do not affect v2.
 
+## Research data: Sharadar
+
+The research data vendor is Sharadar, through Nasdaq Data Link (owner's decision, 2026-10-13). It supplies
+delisted stocks, corporate actions, historical S&P 500 membership and as-reported fundamentals. Set up ahead of
+phase 3; the point-in-time store built on it is phase 3 work.
+
+1. Subscribe to the Sharadar Core US Equities Bundle (SEP, SF1, TICKERS, ACTIONS, SP500 at least) at
+   data.nasdaq.com, and copy the API key from your account settings.
+2. `uv run python -m investtree credentials set nasdaq-data-link-api-key`
+3. `uv run python -m investtree vendor sharadar check`: which tables the key can read
+4. `uv run python -m investtree vendor sharadar download --phase3`: each table as a dated, fingerprinted
+   Parquet snapshot in `data/vendor/sharadar/` (never overwritten; SEP is several gigabytes and takes a while)
+
 ## The paper overlay
 
 `spy_voltarget` (SPY at a 10% volatility target, $100,000 of the paper account) started in v1 on 2026-10-08

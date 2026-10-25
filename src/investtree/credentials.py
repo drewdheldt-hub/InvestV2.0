@@ -18,6 +18,7 @@ SERVICE = "investtree2"
 KNOWN = {
     "anthropic-api-key": "Claude API key for the operator and critic agents",
     "ib-flex-token": "IB Flex Web Service token, to download read-only holdings statements",
+    "nasdaq-data-link-api-key": "Nasdaq Data Link API key, for Sharadar research data",
 }
 
 

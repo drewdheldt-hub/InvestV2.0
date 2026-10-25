@@ -18,6 +18,12 @@
     investtree overlay import-v1 NAME --from DIR   carry a v1 paper overlay's state over (done once, 2026-10-13)
     investtree study WEIGHTS                every policy, and the band against the monthly rebalance, on stored
                                             bars (e.g. SPY:0.6,TLT:0.4); reports/studies/<weights>_<date>.md
+
+  Research data (set up ahead of phase 3):
+    investtree vendor sharadar check        which Sharadar tables the API key can read
+    investtree vendor sharadar download [TABLES] [--phase3]
+                                            whole tables as dated, fingerprinted snapshots (heavy: below-normal
+                                            priority; SEP is several gigabytes)
 """
 
 from __future__ import annotations
@@ -102,6 +108,9 @@ def cmd_brief(args: argparse.Namespace) -> int:
 def cmd_credentials(args: argparse.Namespace) -> int:
     from . import credentials
 
+    if args.name not in credentials.KNOWN:
+        print(f"unknown credential {args.name!r}; known: {', '.join(sorted(credentials.KNOWN))}", file=sys.stderr)
+        return 1
     if args.action == "set":
         credentials.set_interactively(args.name)
         print(f"{args.name} stored in the credential store")
@@ -389,6 +398,55 @@ def cmd_gateway(args: argparse.Namespace) -> int:
     return 0 if r.ok else 1
 
 
+def below_normal_priority() -> None:
+    """Heavy jobs run at below-normal priority (the project rule); the scheduler does this for its jobs, and a
+    heavy command started by hand does it for itself."""
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetPriorityClass(kernel32.GetCurrentProcess(), 0x00004000)   # BELOW_NORMAL_PRIORITY_CLASS
+
+
+def cmd_vendor(args: argparse.Namespace) -> int:
+    from . import credentials
+    from .data import sharadar
+
+    paths = Paths()
+    key = credentials.get("nasdaq-data-link-api-key")
+    if not key:
+        print("no API key: store it with  uv run python -m investtree credentials set nasdaq-data-link-api-key",
+              file=sys.stderr)
+        return 1
+    if args.action == "check":
+        rows = sharadar.check(key)
+        for a in rows:
+            print(f"{'ok     ' if a.ok else 'NO     '} {a.table:8} {a.detail}")
+        missing = [a.table for a in rows if not a.ok and a.table in sharadar.PHASE3]
+        if missing:
+            print(f"phase 3 needs {', '.join(missing)}: check the subscription (Sharadar Core US Equities Bundle)",
+                  file=sys.stderr)
+        return 1 if missing else 0
+    tables = [t.upper() for t in args.tables] or (list(sharadar.PHASE3) if args.phase3 else [])
+    if not tables:
+        print("name the tables to download, or pass --phase3", file=sys.stderr)
+        return 1
+    below_normal_priority()
+    failed = []
+    for t in tables:
+        try:
+            s = sharadar.download(paths.data, key, t)
+        except sharadar.SharadarError as e:
+            print(f"FAILED  {t}: {e}", file=sys.stderr)
+            failed.append(t)
+            continue
+        print(f"ok      {t}: {s.rows:,} rows, {s.bytes / 1e6:,.0f} MB, Sharadar snapshot {s.vendor_time}, "
+              f"sha256 {s.sha256[:12]}")
+    _note(paths, "vendor-download", f"Sharadar: {len(tables) - len(failed)} of {len(tables)} tables downloaded"
+          + (f"; failed: {', '.join(failed)}" if failed else ""))
+    return 1 if failed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="investtree", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -438,6 +496,12 @@ def main(argv: list[str] | None = None) -> int:
     gw.add_argument("action", choices=["start"])
     gw.add_argument("--wait-seconds", type=float, default=180)
     gw.set_defaults(fn=cmd_gateway)
+    ve = sub.add_parser("vendor", help="research data vendors (Sharadar)")
+    ve.add_argument("vendor", choices=["sharadar"])
+    ve.add_argument("action", choices=["check", "download"])
+    ve.add_argument("tables", nargs="*", help="table names (download); default with --phase3: what phase 3 needs")
+    ve.add_argument("--phase3", action="store_true", help="download TICKERS, SEP, ACTIONS, SP500 and SF1")
+    ve.set_defaults(fn=cmd_vendor)
     args = ap.parse_args(argv)
     return int(args.fn(args))
 
