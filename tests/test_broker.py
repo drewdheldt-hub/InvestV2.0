@@ -162,3 +162,10 @@ def test_industry_is_empty_for_a_fund() -> None:
     b.connect()
     assert b.industry("AAPL") == "Technology"
     assert b.industry("SPY") == ""
+
+
+def test_every_request_has_a_time_limit() -> None:
+    """ib_async waits forever by default; a Gateway that stopped answering hung the overlay on 2026-11-12."""
+    ib = FakeIB()
+    IBAdapter(4002, 70, ib_factory=lambda: ib).connect()
+    assert ib.RequestTimeout == 120.0
