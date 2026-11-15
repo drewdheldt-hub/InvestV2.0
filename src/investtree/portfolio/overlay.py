@@ -47,12 +47,33 @@ class Decision:
 
 
 def decide(policy: OverlayPolicy, days: list[date], closes: Floats, target: Floats, today: date, held: Floats,
-           scale: float = MAX_EXPOSURE, first: bool = False) -> Decision:
+           scale: float = MAX_EXPOSURE, first: bool = False, catch_up_week: bool = False,
+           catch_up_month: bool = False) -> Decision:
     """Today's decision. days: the trading dates of `closes` [T, N] (oldest first), all before today.
     held: today's weights of capital (from the account at yesterday's closes). scale: the exposure from the
     last weekly adjustment. first: the portfolio's first day, treated as the start of a month and a week so
-    it is built at once. Same rules as risk.simulate."""
+    it is built at once. Same rules as risk.simulate.
+
+    catch_up_week, catch_up_month: this week's (or month's) decision was missed on its day (the broker did
+    not answer, the computer was off), so today makes it. Without this, one missed Thursday means a whole
+    week at the old exposure; with it, the decision is a day or so late. The backtest never misses a day."""
     month, week = (True, True) if first else period_starts(days, today)
+    late = (catch_up_week and not week) or (catch_up_month and not month)
+    month, week = month or catch_up_month, week or catch_up_week
+    d = _decide(policy, closes, target, held, scale, month, week)
+    if late and d.want is not None:
+        return Decision(d.want, d.why + " (catching up: missed on its day)", d.scale)
+    return d
+
+
+def missed(last: date | None, today: date, unit: Literal["W", "M"]) -> bool:
+    """True when the last weekly ('W') or monthly ('M') decision was in an earlier week or month than today,
+    so this one has not been made yet. None (no record yet) counts as up to date."""
+    return last is not None and np.datetime64(last, unit) != np.datetime64(today, unit)
+
+
+def _decide(policy: OverlayPolicy, closes: Floats, target: Floats, held: Floats, scale: float, month: bool,
+            week: bool) -> Decision:
     if policy == "rebalance":
         return (Decision(target.copy(), "first trading day of the month", scale) if month
                 else Decision(None, "not a rebalance day", scale))

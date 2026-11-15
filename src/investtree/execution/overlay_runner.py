@@ -108,11 +108,22 @@ class Runner:
         capital = min(cfg.capital, self.b.net_liquidation())
         held = shares * prices / capital
         first = not self.state.get("started")
+        # the last weekly and monthly decisions; a state from before these were kept reads them from the journal
+        last_week = _day(self.state.get("last_week_decision")) or self._last_decision(("weekly", "first run"))
+        last_month = _day(self.state.get("last_month_decision")) or self._last_decision(("month", "first run"))
+        month_start, week_start = overlay.period_starts(days, today)
+        catch_week = not first and overlay.missed(last_week, today, "W")
+        catch_month = not first and overlay.missed(last_month, today, "M")
         d = overlay.decide(cfg.policy, days, closes, self.target, today, held,
-                           self.state.get("scale", MAX_EXPOSURE), first=first)
+                           self.state.get("scale", MAX_EXPOSURE), first=first, catch_up_week=catch_week,
+                           catch_up_month=catch_month)
         why = ("first run, building the portfolio: " if first else "") + d.why
         self.state["last_day"] = today.isoformat()
         self.state["scale"] = d.scale
+        if first or week_start or catch_week:
+            self.state["last_week_decision"] = today.isoformat()
+        if first or month_start or catch_month:
+            self.state["last_month_decision"] = today.isoformat()
         detail: dict[str, Any] = {"day": today.isoformat(), "capital": capital, "drift": drift,
                                   "held": dict(zip(self.symbols, held.round(4).tolist(), strict=True))}
         if not_stored:
@@ -125,8 +136,11 @@ class Runner:
         orders = overlay.plan(d.want, self.symbols, prices, shares, capital, cfg.min_trade)
         detail.update(want=dict(zip(self.symbols, d.want.round(4).tolist(), strict=True)), orders=orders)
         if self.paths.stop_file.exists():
-            # nothing sent, and the day is not used up: once the STOP file is gone a rerun can still act
+            # nothing sent, and the day is not used up: once the STOP file is gone a rerun can still act, and
+            # a later day still catches up
             self.state["last_day"] = None
+            for key, before in (("last_week_decision", last_week), ("last_month_decision", last_month)):
+                self.state[key] = before.isoformat() if before else None
             self.note("halt", today, reason="STOP file present: nothing sent", orders=orders)
             self._save()
             return Outcome("halted", f"{why}; STOP file present, nothing sent", detail)
@@ -157,6 +171,19 @@ class Runner:
         if not orders:
             return Outcome("no orders", f"{why}; already within {cfg.min_trade:.1%} of the target", detail)
         return Outcome("orders sent" if cfg.execute else "signal only", why, detail)
+
+    def _last_decision(self, words: tuple[str, ...]) -> date | None:
+        """The latest day the journal records a decision whose reason contains one of `words`."""
+        last = None
+        if self.journal.exists():
+            for line in self.journal.read_text(encoding="utf-8").splitlines():
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if e.get("kind") == "decision" and any(w in str(e.get("why", "")) for w in words):
+                    last = date.fromisoformat(e["ts"])
+        return last
 
     # ------------------------------------------------------------ after the open
     def record_fills(self, today: date) -> Outcome:
@@ -189,6 +216,10 @@ class Runner:
         if short:
             return Outcome("not all filled", "not all filled: " + ", ".join(short), {"fills": rows})
         return Outcome("fills recorded", "all filled", {"fills": rows})
+
+
+def _day(x: object) -> date | None:
+    return date.fromisoformat(x) if isinstance(x, str) else None
 
 
 def _plain(x: object) -> object:

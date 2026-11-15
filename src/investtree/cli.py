@@ -154,6 +154,9 @@ def paper_broker(client_id: int, readonly: bool = True, deadline: datetime | Non
         time.sleep(60)
 
 
+RETRY_SECONDS = 120         # between attempts when the Gateway does not answer
+
+
 def _until(hhmm: str | None) -> datetime | None:
     if not hhmm:
         return None
@@ -210,7 +213,7 @@ def cmd_data(args: argparse.Namespace) -> int:
         results = bars.refresh(paths.data, symbols, b.daily_bars)
         for s in symbols:
             if s not in industries:
-                with contextlib.suppress(BrokerError):         # unknown to IB: the bars refresh says so
+                with contextlib.suppress(BrokerError, TimeoutError):   # the bars refresh reports the symbol
                     industries[s] = b.industry(s) or "fund or other"
     finally:
         b.disconnect()
@@ -325,18 +328,34 @@ def cmd_overlay(args: argparse.Namespace) -> int:
         return 0
     job = "overlay-paper" if args.action == "run" else "overlay-fills"
     sending = args.action == "run" and cfg.execute
-    b = paper_broker(cfg.client_id, readonly=not sending, deadline=_until(args.wait_until))
-    if b is None:
-        msg = "no IB Gateway or TWS on a paper port: " + ("no decision today" if args.action == "run"
-                                                           else "fills not recorded")
-        print(msg, file=sys.stderr)
-        _note(paths, job, msg)
-        return 1
-    try:
-        r = ovr.Runner(b, cfg, paths)
-        out = r.run(date.today()) if args.action == "run" else r.record_fills(date.today())
-    finally:
-        b.disconnect()
+    deadline = _until(args.wait_until)
+    while True:
+        try:
+            b = paper_broker(cfg.client_id, readonly=not sending, deadline=deadline)
+            if b is None:
+                msg = "no IB Gateway or TWS on a paper port: " + ("no decision today" if args.action == "run"
+                                                                   else "fills not recorded")
+                print(msg, file=sys.stderr)
+                _note(paths, job, msg)
+                return 1
+            try:
+                r = ovr.Runner(b, cfg, paths)
+                out = r.run(date.today()) if args.action == "run" else r.record_fills(date.today())
+            finally:
+                b.disconnect()
+            break
+        except (TimeoutError, ConnectionError, OSError) as e:
+            # The Gateway is up but not answering. A retry is safe: the runner saves its decision before
+            # sending, so a rerun the same day finds it and never sends an order twice.
+            if deadline is None or datetime.now() + timedelta(seconds=RETRY_SECONDS) >= deadline:
+                msg = f"the Gateway did not answer ({type(e).__name__}); " + (
+                    "no decision today" if args.action == "run" else "fills not recorded")
+                print(msg, file=sys.stderr)
+                _note(paths, job, msg)
+                return 1
+            print(f"the Gateway did not answer ({type(e).__name__}); trying again in {RETRY_SECONDS} s",
+                  file=sys.stderr)
+            time.sleep(RETRY_SECONDS)
     print(f"{cfg.name}: {out.action}: {out.why}")
     if out.detail:
         print(json.dumps(out.detail, indent=1, default=str))

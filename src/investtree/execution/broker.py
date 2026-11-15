@@ -10,7 +10,10 @@ Safety, built in:
   * an unknown symbol is reported as unknown. ib_async 2.x answers it with [None], a non-empty list,
     which v1 once mistook for success;
   * orders need a session opened with readonly=False, and on a live account also the typed confirmation
-    LIVE_CONFIRMATION.
+    LIVE_CONFIRMATION;
+  * every request has a time limit (REQUEST_TIMEOUT). ib_async waits forever by default, so a Gateway that
+    is up but not answering (as on 2026-11-12) hung the overlay until the scheduler killed it; now the
+    request raises TimeoutError and the caller can retry.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ PAPER_PORTS = (4002, 7497)            # Gateway first, as the scheduler prefers 
 IB_SYMBOL = {"BRK.B": "BRK B", "BF.B": "BF B"}   # IB spells dual-class shares with a space
 UNSET = 1e9                            # ib_async marks an unset number with a huge value
 LIVE_CONFIRMATION = "TRADE LIVE"       # what the owner types to allow an order on a live account
+REQUEST_TIMEOUT = 120.0                # seconds; 21 years of daily bars takes a few seconds normally
 
 
 class BrokerError(RuntimeError):
@@ -76,11 +80,12 @@ class IBAdapter:
     """Broker on Interactive Brokers through ib_async. `ib_factory` makes the IB object (tests pass a fake)."""
 
     def __init__(self, port: int, client_id: int, *, allow_live: bool = False, readonly: bool = True,
-                 live_confirmation: str = "", host: str = "127.0.0.1",
+                 live_confirmation: str = "", host: str = "127.0.0.1", request_timeout: float = REQUEST_TIMEOUT,
                  ib_factory: Callable[[], Any] | None = None) -> None:
         self.port, self.client_id, self.host = port, client_id, host
         self.allow_live, self.readonly = allow_live, readonly
         self.live_confirmation = live_confirmation
+        self.request_timeout = request_timeout
         self._factory = ib_factory
         self.ib: Any = None
         self.accounts: list[str] = []
@@ -96,6 +101,7 @@ class IBAdapter:
             from ib_async import IB
 
             self.ib = IB()
+        self.ib.RequestTimeout = self.request_timeout          # raise TimeoutError rather than wait forever
         self.ib.connect(self.host, self.port, clientId=self.client_id, readonly=self.readonly, timeout=15)
         self.accounts = list(self.ib.managedAccounts())
         if not self.accounts:

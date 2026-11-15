@@ -57,3 +57,37 @@ def test_study_writes_the_band_verdict(paths: Paths, capsys: pytest.CaptureFixtu
     assert cli.main(["study", "AAA:0.6,BBB:0.4", "--runs", "50"]) == 0
     assert "**Verdict:" in capsys.readouterr().out
     assert len(list((paths.reports / "studies").glob("AAA60_BBB40_*.md"))) == 1
+
+
+def test_overlay_retries_while_the_gateway_does_not_answer(paths: Paths, monkeypatch: pytest.MonkeyPatch) -> None:
+    from investtree.execution import overlay_runner as ovr
+
+    calls: list[int] = []
+
+    class Quiet:
+        def disconnect(self) -> None: ...
+
+    def broker(*a: object, **k: object) -> Quiet:
+        calls.append(1)
+        if len(calls) == 1:
+            raise TimeoutError("positions request timed out")
+        return Quiet()
+
+    class Stub:
+        def __init__(self, *a: object) -> None: ...
+        def run(self, today: object) -> ovr.Outcome: return ovr.Outcome("none", "not an adjustment day")
+
+    monkeypatch.setattr(cli, "paper_broker", broker)
+    monkeypatch.setattr(cli, "RETRY_SECONDS", 0)
+    monkeypatch.setattr(ovr, "Runner", Stub)
+    assert cli.main(["overlay", "run", "spy_voltarget", "--wait-until", "23:59"]) == 0 and len(calls) == 2
+
+
+def test_overlay_gives_up_at_its_cut_off(paths: Paths, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broker(*a: object, **k: object) -> object:
+        raise TimeoutError("positions request timed out")
+
+    monkeypatch.setattr(cli, "paper_broker", broker)
+    assert cli.main(["overlay", "run", "spy_voltarget"]) == 1                  # no --wait-until: one attempt
+    notes = {e.job: e.text for e in status.read(paths.status_feed)}
+    assert notes["overlay-paper"] == "the Gateway did not answer (TimeoutError); no decision today"

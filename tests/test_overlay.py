@@ -71,3 +71,25 @@ def test_cost_in_basis_points_is_positive_when_worse() -> None:
     assert overlay.cost_bp(1, 100.1, 100.0) == pytest.approx(10.0)      # bought above the reference
     assert overlay.cost_bp(-1, 99.9, 100.0) == pytest.approx(10.0)      # sold below it
     assert overlay.cost_bp(1, None, 100.0) is None
+
+
+def test_a_missed_weekly_adjustment_is_made_the_next_day_and_labelled() -> None:
+    # Thursday 12th's close exists; only that morning's run was missed
+    days = [date(2026, 11, 9), date(2026, 11, 10), date(2026, 11, 11), date(2026, 11, 12)]
+    closes = np.array([[100.0], [101.0], [100.5], [99.8]])
+    friday = date(2026, 11, 13)
+    held = np.array([0.76])
+    assert overlay.decide("vol_target", days, closes, np.array([1.0]), friday, held, 0.78).want is None
+    d = overlay.decide("vol_target", days, closes, np.array([1.0]), friday, held, 0.78, catch_up_week=True)
+    assert d.want is not None and d.why.endswith("(catching up: missed on its day)")
+    # on the regular day the same flag adds no label
+    d = overlay.decide("vol_target", days[:3], closes[:3], np.array([1.0]), date(2026, 11, 12), held, 0.78,
+                       catch_up_week=True)
+    assert d.want is not None and "catching up" not in d.why
+
+
+def test_missed_compares_numpy_weeks_and_months() -> None:
+    assert overlay.missed(date(2026, 11, 5), date(2026, 11, 13), "W")       # Thu 5th's week ended Wed 11th
+    assert not overlay.missed(date(2026, 11, 12), date(2026, 11, 16), "W")  # Thu 12th to Wed 18th
+    assert overlay.missed(date(2026, 10, 30), date(2026, 11, 3), "M")
+    assert not overlay.missed(None, date(2026, 11, 3), "M")

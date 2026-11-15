@@ -168,3 +168,39 @@ def test_fill_review_and_paper_record(tmp_path: Path) -> None:
     rec = ovr.paper_record(s, j, date(2027, 1, 20))
     assert rec["weekly_decisions"] == 1 and rec["monthly_rebalances"] == 1 and rec["share_mismatches"] == 1
     assert rec["months_on_paper"] > 3 and not rec["gate_met"]
+
+
+def test_a_missed_thursday_is_caught_up_on_friday_once(paths: Paths) -> None:
+    b = PaperBroker()
+    runner(paths, b, policy="vol_target").run(MONDAY)                       # first run: builds, 2026-10-12
+    b.last_bar = date(2026, 10, 15)                                          # Thursday 15th: no run at all
+    out = runner(paths, b, policy="vol_target").run(date(2026, 10, 16))
+    assert "weekly adjustment" in out.why and "catching up" in out.why
+    b.last_bar = date(2026, 10, 16)
+    nxt = runner(paths, b, policy="vol_target").run(date(2026, 10, 19))     # same numpy week: nothing more
+    assert nxt.action == "none" and nxt.why == "not an adjustment day"
+
+
+def test_an_older_state_reads_its_last_decisions_from_the_journal(paths: Paths) -> None:
+    """The live state predates the recorded decision dates; the journal says the last weekly one was 11-05."""
+    paths.overlay_state.mkdir(parents=True)
+    (paths.overlay_state / "spy_voltarget.json").write_text(json.dumps(
+        {"last_day": "2026-11-13", "started": "2026-10-08", "expected": {"SPY": 0}, "scale": 0.78}),
+        encoding="utf-8")
+    (paths.overlay_state / "spy_voltarget.journal.jsonl").write_text("\n".join(json.dumps(r) for r in [
+        {"ts": "2026-11-02", "kind": "decision", "why": "monthly rebalance, exposure 100%"},
+        {"ts": "2026-11-05", "kind": "decision", "why": "weekly adjustment, exposure 78%"},
+        {"ts": "2026-11-13", "kind": "check", "why": "not an adjustment day"}]) + "\n", encoding="utf-8")
+    b = PaperBroker(last_bar=date(2026, 11, 13))
+    out = runner(paths, b, policy="vol_target").run(date(2026, 11, 16))     # Monday, still the week of the 12th
+    assert "catching up" in out.why
+
+
+def test_a_stop_file_does_not_use_up_the_catch_up(paths: Paths) -> None:
+    b = PaperBroker()
+    runner(paths, b, policy="vol_target").run(MONDAY)
+    b.last_bar = date(2026, 10, 15)
+    paths.stop_file.write_text("", encoding="utf-8")
+    assert runner(paths, b, policy="vol_target").run(date(2026, 10, 16)).action == "halted"
+    paths.stop_file.unlink()
+    assert "catching up" in runner(paths, b, policy="vol_target").run(date(2026, 10, 16)).why

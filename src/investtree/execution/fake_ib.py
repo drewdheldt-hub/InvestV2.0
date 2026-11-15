@@ -89,6 +89,7 @@ class FakeIB:
     connected: bool = False
     connect_args: dict[str, Any] = field(default_factory=dict)
     orders: list[tuple[str, Any]] = field(default_factory=list)   # (symbol, order) for every order placed
+    RequestTimeout: float = 0.0                                    # ib_async's default: wait forever
 
     def connect(self, host: str, port: int, clientId: int, readonly: bool = False, timeout: float = 4) -> None:
         self.connected = True
